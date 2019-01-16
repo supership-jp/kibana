@@ -36,6 +36,8 @@ const EMPTY_STYLE = {
   fillOpacity: 0
 };
 
+const LINE_TYPE = ['LineString', 'MultiLineString'];
+
 
 const emsServiceSettings = new Promise((resolve) => {
   uiModules.get('kibana').run(($injector) => {
@@ -414,11 +416,13 @@ CORS configuration of the server permits requests from the Kibana application on
         const boundsOfFeature = L.geoJson(geojsonFeature).getBounds();
         boundsOfAllFeatures.extend(boundsOfFeature);
 
+        const fillColor = getChoroplethColor(match.value, min, max, this._colorRamp);
+        const lineColor = (LINE_TYPE.includes(geojsonFeature.geometry.type)) ? fillColor : 'white';
         return {
-          fillColor: getChoroplethColor(match.value, min, max, this._colorRamp),
+          fillColor: fillColor,
           weight: this._lineWeight,
           opacity: 1,
-          color: 'white',
+          color: lineColor,
           fillOpacity: 0.7
         };
       },
