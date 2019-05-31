@@ -49,7 +49,12 @@ export default async function (kbnServer, server, config) {
           lookupCompressed: true
         }
       },
-      config: { auth: false }
+      config: {
+        auth: false,
+        cache: {
+          expiresAt: '00:00',
+          privacy: 'public'
+        } }
     });
   });
 
