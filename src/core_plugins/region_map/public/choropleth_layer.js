@@ -39,6 +39,7 @@ const LINE_TYPE = ['LineString', 'MultiLineString'];
 
 export default class ChoroplethLayer extends KibanaMapLayer {
 
+  /**
   static _doInnerJoin(sortedMetrics, sortedGeojsonFeatures, joinField) {
     let j = 0;
     for (let i = 0; i < sortedGeojsonFeatures.length; i++) {
@@ -68,6 +69,7 @@ export default class ChoroplethLayer extends KibanaMapLayer {
       }
     }
   }
+  **/
 
 
   constructor(geojsonUrl, attribution, format, showAllShapes, meta) {
@@ -80,6 +82,7 @@ export default class ChoroplethLayer extends KibanaMapLayer {
     this._tooltipFormatter = () => '';
     this._attribution = attribution;
     this._boundsOfData = null;
+    this._previousMatchFeatures = [];
 
     this._showAllShapes = showAllShapes;
     this._geojsonUrl = geojsonUrl;
@@ -115,20 +118,30 @@ export default class ChoroplethLayer extends KibanaMapLayer {
     this._isJoinValid = false;
     this._whenDataLoaded = new Promise(async (resolve) => {
       try {
-        const data = await this._makeJsonAjaxCall(geojsonUrl);
         let featureCollection;
-        const formatType = typeof format === 'string' ? format : format.type;
-        if (formatType === 'geojson') {
-          featureCollection = data;
-        } else if (formatType === 'topojson') {
-          const features = _.get(data, 'objects.' + meta.feature_collection_path);
-          featureCollection = topojson.feature(data, features);//conversion to geojson
+        if ((this._geojsonUrl == null) || (this._geojsonUrl !== geojsonUrl) || (!this._featureCollection)) {
+          const data = await this._makeJsonAjaxCall(geojsonUrl);
+          const formatType = typeof format === 'string' ? format : format.type;
+          if (formatType === 'geojson') {
+            featureCollection = data;
+          } else if (formatType === 'topojson') {
+            const features = _.get(data, 'objects.' + meta.feature_collection_path);
+            featureCollection = topojson.feature(data, features);//conversion to geojson
+          } else {
+            //should never happen
+            throw new Error('Unrecognized format ' + formatType);
+          }
+          //this._sortedFeatures = featureCollection.features.slice();
+          //this._sortFeatures();
+
+          this._featureCollection = featureCollection.features.slice();
         } else {
-          //should never happen
-          throw new Error('Unrecognized format ' + formatType);
+          featureCollection = {
+	    type: 'FeatureCollection',
+            features: this._featureCollection
+          };
         }
-        this._sortedFeatures = featureCollection.features.slice();
-        this._sortFeatures();
+        this.setFeatureDict();
 
         if (showAllShapes) {
           this._leafletLayer.addData(featureCollection);
@@ -140,6 +153,7 @@ export default class ChoroplethLayer extends KibanaMapLayer {
         this._setStyle();
         resolve();
       } catch (e) {
+        console.log(e);
         this._loaded = true;
         this._error = true;
 
@@ -175,22 +189,50 @@ CORS configuration of the server permits requests from the Kibana application on
     this._isJoinValid = false;
   }
 
+  /**
   _doInnerJoin() {
     ChoroplethLayer._doInnerJoin(this._metrics, this._sortedFeatures, this._joinField);
     this._isJoinValid = true;
   }
+  **/
+
+  _dictJoin() {
+    if (!this._metrics) return [[], []];
+    for (let i = 0; i < this._previousMatchFeatures.length; i++) this._previousMatchFeatures[i].__kbnJoinedMetric = null;
+    const featuresToDraw = [];
+    const mismatchedKeys = [];
+    for (let i = 0; i < this._metrics.length; i++) {
+      const keyTerm = this._metrics[i].term;
+      const _feature = this._featureDict[keyTerm];
+      if (_feature) {
+        _feature.__kbnJoinedMetric = this._metrics[i];
+        featuresToDraw.push(_feature);
+      } else {
+        mismatchedKeys.push(keyTerm);
+      }
+    }
+    const features = this._previousMatchFeatures.concat(featuresToDraw);
+    this._isJoinValid = true;
+    this._previousMatchFeatures = featuresToDraw;
+    return [features, mismatchedKeys];
+  }
+
 
   _setStyle() {
+    //console.log(this._metrics);
+    //console.log(this._featureCollection);
+    //console.log(this._featureDict);
     if (this._error || (!this._loaded || !this._metrics || !this._joinField)) {
       return;
     }
 
+    let joinResult = [[], []];
     if (!this._isJoinValid) {
-      this._doInnerJoin();
+      joinResult = this._dictJoin();
       if (!this._showAllShapes) {
         const featureCollection = {
           type: 'FeatureCollection',
-          features: this._sortedFeatures.filter(feature => feature.__kbnJoinedMetric)
+          features: joinResult[0]
         };
         this._leafletLayer.addData(featureCollection);
       }
@@ -207,7 +249,7 @@ CORS configuration of the server permits requests from the Kibana application on
     }
     this._boundsOfData = styler.getLeafletBounds();
     this.emit('styleChanged', {
-      mismatches: styler.getMismatches()
+      mismatches: joinResult[1]
     });
   }
 
@@ -232,8 +274,19 @@ CORS configuration of the server permits requests from the Kibana application on
       return;
     }
     this._joinField = joinfield;
-    this._sortFeatures();
+    //this._sortFeatures();
+    this.setFeatureDict();
     this._setStyle();
+  }
+
+  setFeatureDict() {
+    if (!this._joinField) return;
+    if (!this._featureCollection) return;
+    this._featureDict = {};
+    for (let i = 0; i < this._featureCollection.length; i++) {
+      const _feature = this._featureCollection[i];
+      this._featureDict[_feature.properties[this._joinField]] = _feature;
+    }
   }
 
   cloneChoroplethLayerForNewData(url, attribution, format, showAllData, meta) {
@@ -248,6 +301,7 @@ CORS configuration of the server permits requests from the Kibana application on
     return clonedLayer;
   }
 
+  /**
   _sortFeatures() {
     if (this._sortedFeatures && this._joinField) {
       this._sortedFeatures.sort((a, b) => {
@@ -258,6 +312,7 @@ CORS configuration of the server permits requests from the Kibana application on
       this._invalidateJoin();
     }
   }
+  **/
 
   whenDataLoaded() {
     return this._whenDataLoaded;
@@ -269,7 +324,7 @@ CORS configuration of the server permits requests from the Kibana application on
     this._metricsAgg = metricsAgg;
     this._valueFormatter = this._metricsAgg.fieldFormatter();
 
-    this._metrics.sort((a, b) => compareLexicographically(a.term, b.term));
+    //this._metrics.sort((a, b) => compareLexicographically(a.term, b.term));
     this._invalidateJoin();
     this._setStyle();
   }
@@ -367,9 +422,11 @@ CORS configuration of the server permits requests from the Kibana application on
         leafletStyleFunction: () => {
           return emptyStyle();
         },
+        /**
         getMismatches: () => {
           return [];
         },
+	**/
         getLeafletBounds: () => {
           return null;
         }
@@ -398,10 +455,15 @@ CORS configuration of the server permits requests from the Kibana application on
           fillOpacity: 0.7
         };
       },
-      /**
+      getLeafletBounds: function () {
+        return boundsOfAllFeatures.isValid() ? boundsOfAllFeatures : null;
+      }
+    };
+    /**
        * should not be called until getLeafletStyleFunction has been called
        * @return {Array}
-       */
+    */
+    /**
       getMismatches: () => {
         const mismatches = this._metrics.slice();
         this._sortedFeatures.forEach((feature) => {
@@ -412,10 +474,8 @@ CORS configuration of the server permits requests from the Kibana application on
         });
         return mismatches.map(b => b.term);
       },
-      getLeafletBounds: function () {
-        return boundsOfAllFeatures.isValid() ? boundsOfAllFeatures : null;
-      }
     };
+  **/
 
   }
 
@@ -423,6 +483,7 @@ CORS configuration of the server permits requests from the Kibana application on
 
 //lexicographic compare
 function compareLexicographically(termA, termB) {
+  if ((termA == null) || (termB == null)) return false;
   termA = typeof termA === 'string' ? termA : termA.toString();
   termB = typeof termB === 'string' ? termB : termB.toString();
   return termA.localeCompare(termB);
