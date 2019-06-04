@@ -103,20 +103,8 @@ export default class ChoroplethLayer extends KibanaMapLayer {
 
           this._featureCollection = featureCollection.features.slice();
           this._setFeatureDict();
-        } else {
-          featureCollection = {
-	    type: 'FeatureCollection',
-            features: this._featureCollection
-          };
         }
 
-        if (showAllShapes) {
-          featureCollection.features.forEach(_feature => _feature.__kbnJoinedMetric = null);
-          this._leafletLayer.addData(featureCollection);
-        } else {
-          //we need to delay adding the data until we have performed the join and know which features
-          //should be displayed
-        }
         this._loaded = true;
         this._setStyle();
         resolve();
@@ -157,7 +145,7 @@ CORS configuration of the server permits requests from the Kibana application on
     this._isJoinValid = false;
   }
 
-  _dictJoin() {
+  _innerJoin() {
     if (!this._metrics) return [[], []];
     const featuresToDraw = [];
     const mismatchedKeys = [];
@@ -171,9 +159,24 @@ CORS configuration of the server permits requests from the Kibana application on
         mismatchedKeys.push(keyTerm);
       }
     }
-    const features = featuresToDraw;
     this._isJoinValid = true;
-    return [features, mismatchedKeys];
+    return [featuresToDraw, mismatchedKeys];
+  }
+
+  _leftOuterJoin() {
+    this._featureCollection.forEach(_feature => _feature.__kbnJoinedMetric = null);
+    const mismatchedKeys = [];
+    for (let i = 0; i < this._metrics.length; i++) {
+      const keyTerm = this._metrics[i].term;
+      const _feature = this._featureDict[keyTerm];
+      if (_feature) {
+        _feature.__kbnJoinedMetric = this._metrics[i];
+      } else {
+        mismatchedKeys.push(keyTerm);
+      }
+    }
+    this._isJoinValid = true;
+    return [this._featureCollection, mismatchedKeys];
   }
 
 
@@ -184,14 +187,16 @@ CORS configuration of the server permits requests from the Kibana application on
 
     let joinResult = [[], []];
     if (!this._isJoinValid) {
-      joinResult = this._dictJoin();
-      if (!this._showAllShapes) {
-        const featureCollection = {
-          type: 'FeatureCollection',
-          features: joinResult[0]
-        };
-        this._leafletLayer.addData(featureCollection);
+      if (this._showAllShapes) {
+        joinResult = this._leftOuterJoin();
+      } else {
+        joinResult = this._innerJoin();
       }
+      const featureCollection = {
+        type: 'FeatureCollection',
+        features: joinResult[0]
+      };
+      this._leafletLayer.addData(featureCollection);
     }
 
     const styler = this._makeChoroplethStyler();
