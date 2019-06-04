@@ -111,20 +111,19 @@ export function RegionMapsVisualizationProvider(Private, config) {
       if (this._choroplethLayer && this._choroplethLayer.canReuseInstanceForNewMetrics(url, showAllData, newMetrics)) {
         return;
       }
-      return this._recreateChoroplethLayer(url, attribution, showAllData);
+      return this._recreateChoroplethLayer(url, attribution, showAllData, false);
     }
 
     _updateChoroplethLayerForNewProperties(url, attribution, showAllData) {
       if (this._choroplethLayer && this._choroplethLayer.canReuseInstance(url, showAllData)) {
         return;
       }
-      return this._recreateChoroplethLayer(url, attribution, showAllData);
+      return this._recreateChoroplethLayer(url, attribution, showAllData, true);
     }
 
-    _recreateChoroplethLayer(url, attribution, showAllData) {
+    _recreateChoroplethLayer(url, attribution, showAllData, toRender) {
 
       this._kibanaMap.removeLayer(this._choroplethLayer);
-
 
       if (this._choroplethLayer) {
         this._choroplethLayer = this._choroplethLayer.cloneChoroplethLayerForNewData(
@@ -132,7 +131,8 @@ export function RegionMapsVisualizationProvider(Private, config) {
           attribution,
           this.vis.params.selectedLayer.format,
           showAllData,
-          this.vis.params.selectedLayer.meta
+          this.vis.params.selectedLayer.meta,
+          toRender
         );
       } else {
         this._choroplethLayer = new ChoroplethLayer(
@@ -140,12 +140,14 @@ export function RegionMapsVisualizationProvider(Private, config) {
           attribution,
           this.vis.params.selectedLayer.format,
           showAllData,
-          this.vis.params.selectedLayer.meta
+          this.vis.params.selectedLayer.meta,
+          [],
+          {},
+          toRender
         );
       }
 
       this._choroplethLayer.on('select', (event) => {
-
 
         if (!this._isAggReady()) {
           //even though we have maps data available and have added the choropleth layer to the map

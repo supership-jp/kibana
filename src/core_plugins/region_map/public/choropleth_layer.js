@@ -39,40 +39,7 @@ const LINE_TYPE = ['LineString', 'MultiLineString'];
 
 export default class ChoroplethLayer extends KibanaMapLayer {
 
-  /**
-  static _doInnerJoin(sortedMetrics, sortedGeojsonFeatures, joinField) {
-    let j = 0;
-    for (let i = 0; i < sortedGeojsonFeatures.length; i++) {
-      const property = sortedGeojsonFeatures[i].properties[joinField];
-      sortedGeojsonFeatures[i].__kbnJoinedMetric = null;
-      const position = sortedMetrics.length ? compareLexicographically(property, sortedMetrics[j].term) : -1;
-      if (position === -1) {//just need to cycle on
-      } else if (position === 0) {
-        sortedGeojsonFeatures[i].__kbnJoinedMetric = sortedMetrics[j];
-      } else if (position === 1) {//needs to catch up
-        while (j < sortedMetrics.length) {
-          const newTerm = sortedMetrics[j].term;
-          const newPosition = compareLexicographically(newTerm, property);
-          if (newPosition === -1) {//not far enough
-          } else if (newPosition === 0) {
-            sortedGeojsonFeatures[i].__kbnJoinedMetric = sortedMetrics[j];
-            break;
-          } else if (newPosition === 1) {//too far!
-            break;
-          }
-          if (j === sortedMetrics.length - 1) {//always keep a reference to the last metric
-            break;
-          } else {
-            j++;
-          }
-        }
-      }
-    }
-  }
-  **/
-
-
-  constructor(geojsonUrl, attribution, format, showAllShapes, meta) {
+  constructor(geojsonUrl, attribution, format, showAllShapes, meta, features, featureDict, toRender) {
     super();
 
     this._metrics = null;
@@ -82,7 +49,9 @@ export default class ChoroplethLayer extends KibanaMapLayer {
     this._tooltipFormatter = () => '';
     this._attribution = attribution;
     this._boundsOfData = null;
-    this._previousMatchFeatures = [];
+    this._featureCollection = features;
+    this._featureDict = featureDict;
+    this._toRender = toRender;
 
     this._showAllShapes = showAllShapes;
     this._geojsonUrl = geojsonUrl;
@@ -119,7 +88,7 @@ export default class ChoroplethLayer extends KibanaMapLayer {
     this._whenDataLoaded = new Promise(async (resolve) => {
       try {
         let featureCollection;
-        if ((this._geojsonUrl == null) || (this._geojsonUrl !== geojsonUrl) || (!this._featureCollection)) {
+        if (this._featureCollection.length === 0) {
           const data = await this._makeJsonAjaxCall(geojsonUrl);
           const formatType = typeof format === 'string' ? format : format.type;
           if (formatType === 'geojson') {
@@ -131,19 +100,18 @@ export default class ChoroplethLayer extends KibanaMapLayer {
             //should never happen
             throw new Error('Unrecognized format ' + formatType);
           }
-          //this._sortedFeatures = featureCollection.features.slice();
-          //this._sortFeatures();
 
           this._featureCollection = featureCollection.features.slice();
+          this._setFeatureDict();
         } else {
           featureCollection = {
 	    type: 'FeatureCollection',
             features: this._featureCollection
           };
         }
-        this.setFeatureDict();
 
         if (showAllShapes) {
+          featureCollection.features.forEach(_feature => _feature.__kbnJoinedMetric = null);
           this._leafletLayer.addData(featureCollection);
         } else {
           //we need to delay adding the data until we have performed the join and know which features
@@ -189,16 +157,8 @@ CORS configuration of the server permits requests from the Kibana application on
     this._isJoinValid = false;
   }
 
-  /**
-  _doInnerJoin() {
-    ChoroplethLayer._doInnerJoin(this._metrics, this._sortedFeatures, this._joinField);
-    this._isJoinValid = true;
-  }
-  **/
-
   _dictJoin() {
     if (!this._metrics) return [[], []];
-    for (let i = 0; i < this._previousMatchFeatures.length; i++) this._previousMatchFeatures[i].__kbnJoinedMetric = null;
     const featuresToDraw = [];
     const mismatchedKeys = [];
     for (let i = 0; i < this._metrics.length; i++) {
@@ -211,18 +171,14 @@ CORS configuration of the server permits requests from the Kibana application on
         mismatchedKeys.push(keyTerm);
       }
     }
-    const features = this._previousMatchFeatures.concat(featuresToDraw);
+    const features = featuresToDraw;
     this._isJoinValid = true;
-    this._previousMatchFeatures = featuresToDraw;
     return [features, mismatchedKeys];
   }
 
 
   _setStyle() {
-    //console.log(this._metrics);
-    //console.log(this._featureCollection);
-    //console.log(this._featureDict);
-    if (this._error || (!this._loaded || !this._metrics || !this._joinField)) {
+    if (this._error || (!this._loaded || !this._metrics || !this._joinField || !this._toRender)) {
       return;
     }
 
@@ -274,12 +230,11 @@ CORS configuration of the server permits requests from the Kibana application on
       return;
     }
     this._joinField = joinfield;
-    //this._sortFeatures();
-    this.setFeatureDict();
+    this._setFeatureDict();
     this._setStyle();
   }
 
-  setFeatureDict() {
+  _setFeatureDict() {
     if (!this._joinField) return;
     if (!this._featureCollection) return;
     this._featureDict = {};
@@ -287,10 +242,17 @@ CORS configuration of the server permits requests from the Kibana application on
       const _feature = this._featureCollection[i];
       this._featureDict[_feature.properties[this._joinField]] = _feature;
     }
+    this._invalidateJoin();
   }
 
-  cloneChoroplethLayerForNewData(url, attribution, format, showAllData, meta) {
-    const clonedLayer = new ChoroplethLayer(url, attribution, format, showAllData, meta);
+  cloneChoroplethLayerForNewData(url, attribution, format, showAllData, meta, toRender) {
+    let features = [];
+    let featureDict = {};
+    if ((url === this._geojsonUrl) && (this._featureCollection) && (this._featureDict)) {
+      features = this._featureCollection;
+      featureDict = this._featureDict;
+    }
+    const clonedLayer = new ChoroplethLayer(url, attribution, format, showAllData, meta, features, featureDict, toRender);
     clonedLayer.setJoinField(this._joinField);
     clonedLayer.setColorRamp(this._colorRamp);
     clonedLayer.setLineWeight(this._lineWeight);
@@ -298,21 +260,9 @@ CORS configuration of the server permits requests from the Kibana application on
     if (this._metrics && this._metricsAgg) {
       clonedLayer.setMetrics(this._metrics, this._metricsAgg);
     }
+    clonedLayer.enableRendering();
     return clonedLayer;
   }
-
-  /**
-  _sortFeatures() {
-    if (this._sortedFeatures && this._joinField) {
-      this._sortedFeatures.sort((a, b) => {
-        const termA = a.properties[this._joinField];
-        const termB = b.properties[this._joinField];
-        return compareLexicographically(termA, termB);
-      });
-      this._invalidateJoin();
-    }
-  }
-  **/
 
   whenDataLoaded() {
     return this._whenDataLoaded;
@@ -324,7 +274,6 @@ CORS configuration of the server permits requests from the Kibana application on
     this._metricsAgg = metricsAgg;
     this._valueFormatter = this._metricsAgg.fieldFormatter();
 
-    //this._metrics.sort((a, b) => compareLexicographically(a.term, b.term));
     this._invalidateJoin();
     this._setStyle();
   }
@@ -404,6 +353,14 @@ CORS configuration of the server permits requests from the Kibana application on
     });
   }
 
+  disableRendering() {
+    this._toRender = false;
+  }
+  enableRendering() {
+    this._toRender = true;
+  }
+
+
   _makeEmptyStyleFunction() {
 
     const emptyStyle = _.assign({}, EMPTY_STYLE, {
@@ -422,11 +379,6 @@ CORS configuration of the server permits requests from the Kibana application on
         leafletStyleFunction: () => {
           return emptyStyle();
         },
-        /**
-        getMismatches: () => {
-          return [];
-        },
-	**/
         getLeafletBounds: () => {
           return null;
         }
@@ -459,24 +411,6 @@ CORS configuration of the server permits requests from the Kibana application on
         return boundsOfAllFeatures.isValid() ? boundsOfAllFeatures : null;
       }
     };
-    /**
-       * should not be called until getLeafletStyleFunction has been called
-       * @return {Array}
-    */
-    /**
-      getMismatches: () => {
-        const mismatches = this._metrics.slice();
-        this._sortedFeatures.forEach((feature) => {
-          const index = mismatches.indexOf(feature.__kbnJoinedMetric);
-          if (index >= 0) {
-            mismatches.splice(index, 1);
-          }
-        });
-        return mismatches.map(b => b.term);
-      },
-    };
-  **/
-
   }
 
 }
