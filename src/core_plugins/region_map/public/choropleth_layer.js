@@ -250,7 +250,7 @@ CORS configuration of the server permits requests from the Kibana application on
     clonedLayer.setLineWeight(this._lineWeight);
     clonedLayer.setTooltipFormatter(this._tooltipFormatter);
     if (this._metrics && this._metricsAgg) {
-      clonedLayer.setMetrics(this._metrics, this._metricsAgg);
+      clonedLayer.setMetrics(this._metrics, this._metricsAgg, this._sortedFeatures, () => {});
     }
     return clonedLayer;
   }
@@ -270,20 +270,24 @@ CORS configuration of the server permits requests from the Kibana application on
     return this._whenDataLoaded;
   }
 
-  setMetrics(metrics, metricsAgg) {
+  setMetrics(metrics, metricsAgg, sortedFeatures, callback) {
     this._metrics = metrics.slice();
 
     this._metricsAgg = metricsAgg;
     this._valueFormatter = this._metricsAgg.fieldFormatter();
 
+    if (sortedFeatures) {
+      this._sortedFeatures = sortedFeatures.slice();
+      if (this._showAllShapes) this._leafletLayer.addData({ 'type': 'FeatureCollection', 'features': this._sortedFeatures });
+      this._loaded = true;
+      this._invalidateJoin();
+      this._setStyle();
+      return;
+    }
+
     this._metrics.sort((a, b) => compareLexicographically(a.term, b.term));
     this._invalidateJoin();
-    this._joinGeoJson();
-    //this.whenDataLoaded();
-    //this._setStyle();
-  }
 
-  _joinGeoJson() {
     let _terms = ['dummy'];
     if (this._metrics) _terms = this._metrics.map(bucket => bucket.term);
     const reqParam = 'name=' + encodeURIComponent(_terms.join(','));
@@ -292,14 +296,16 @@ CORS configuration of the server permits requests from the Kibana application on
       dataType: 'json',
       url: this._geojsonUrl,
       data: reqParam
-    }).done((featureCollection) => {
+    }).done(featureCollection => {
       this._sortedFeatures = featureCollection.features.slice();
       this._sortFeatures();
 
       if (this._showAllShapes) this._leafletLayer.addData(featureCollection);
       this._loaded = true;
       this._setStyle();
-    }).fail((e) => {
+      callback();
+
+    }).fail(e => {
       this._loaded = true;
       this._error = true;
 

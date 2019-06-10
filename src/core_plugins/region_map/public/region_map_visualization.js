@@ -69,17 +69,17 @@ export function RegionMapsVisualizationProvider(Private, config) {
         return;
       }
 
-      this._updateChoroplethLayerForNewMetrics(
+      this._recreateChoroplethLayer(
         this._vis.params.selectedLayer.url,
         this._vis.params.selectedLayer.attribution,
-        this._vis.params.showAllShapes,
-        results
+        this._vis.params.showAllShapes
       );
-      const metricsAgg = _.first(this._vis.getAggConfig().bySchemaName.metric);
-      this._choroplethLayer.setMetrics(results, metricsAgg);
-      this._setTooltipFormatter();
 
-      this._kibanaMap.useUiStateFromVisualization(this._vis);
+      const metricsAgg = _.first(this._vis.getAggConfig().bySchemaName.metric);
+      this._choroplethLayer.setMetrics(results, metricsAgg, null, () => {
+        this._setTooltipFormatter();
+        this._kibanaMap.useUiStateFromVisualization(this._vis);
+      });
     }
 
     async  _updateParams() {
@@ -105,13 +105,6 @@ export function RegionMapsVisualizationProvider(Private, config) {
       this._choroplethLayer.setLineWeight(visParams.outlineWeight);
       this._setTooltipFormatter();
 
-    }
-
-    _updateChoroplethLayerForNewMetrics(url, attribution, showAllData, newMetrics) {
-      if (this._choroplethLayer && this._choroplethLayer.canReuseInstanceForNewMetrics(url, showAllData, newMetrics)) {
-        return;
-      }
-      return this._recreateChoroplethLayer(url, attribution, showAllData);
     }
 
     _updateChoroplethLayerForNewProperties(url, attribution, showAllData) {
