@@ -80,6 +80,7 @@ export default class ChoroplethLayer extends KibanaMapLayer {
     this._tooltipFormatter = () => '';
     this._attribution = attribution;
     this._boundsOfData = null;
+    this._format = format;
 
     this._showAllShapes = showAllShapes;
     this._geojsonUrl = geojsonUrl;
@@ -165,9 +166,14 @@ CORS configuration of the server permits requests from the Kibana application on
 
   //This method is stubbed in the tests to avoid network request during unit tests.
   async _makeJsonAjaxCall(url) {
+    let _terms = ['dummy'];
+    if (this._metrics) _terms = this._metrics.map(bucket => bucket.term);
+    const reqParam = 'name=' + encodeURIComponent(_terms.join(','));
     return await $.ajax({
+      type: 'POST',
       dataType: 'json',
-      url: url
+      url: url,
+      data: reqParam
     });
   }
 
@@ -237,6 +243,7 @@ CORS configuration of the server permits requests from the Kibana application on
   }
 
   cloneChoroplethLayerForNewData(url, attribution, format, showAllData, meta) {
+    this._sortedFeatures = null;  // tries to gc previous geojson
     const clonedLayer = new ChoroplethLayer(url, attribution, format, showAllData, meta);
     clonedLayer.setJoinField(this._joinField);
     clonedLayer.setColorRamp(this._colorRamp);
@@ -271,9 +278,46 @@ CORS configuration of the server permits requests from the Kibana application on
 
     this._metrics.sort((a, b) => compareLexicographically(a.term, b.term));
     this._invalidateJoin();
-    this._setStyle();
+    this._joinGeoJson();
+    //this.whenDataLoaded();
+    //this._setStyle();
   }
 
+  _joinGeoJson() {
+    let _terms = ['dummy'];
+    if (this._metrics) _terms = this._metrics.map(bucket => bucket.term);
+    const reqParam = 'name=' + encodeURIComponent(_terms.join(','));
+    $.ajax({
+      type: 'POST',
+      dataType: 'json',
+      url: this._geojsonUrl,
+      data: reqParam
+    }).done((featureCollection) => {
+      this._sortedFeatures = featureCollection.features.slice();
+      this._sortFeatures();
+
+      if (this._showAllShapes) this._leafletLayer.addData(featureCollection);
+      this._loaded = true;
+      this._setStyle();
+    }).fail((e) => {
+      this._loaded = true;
+      this._error = true;
+
+      let errorMessage;
+      if (e.status === 404) {
+        errorMessage = `Server responding with '404' when attempting to fetch ${this._geojsonUrl}.
+                        Make sure the file exists at that location.`;
+      } else {
+        errorMessage = `Cannot download ${this._geojsonUrl} file. Please ensure the
+CORS configuration of the server permits requests from the Kibana application on this host.`;
+      }
+
+      toastNotifications.addDanger({
+        title: 'Error downloading vector data',
+        text: errorMessage,
+      });
+    });
+  }
 
   setColorRamp(colorRamp) {
     if (_.isEqual(colorRamp, this._colorRamp)) {
