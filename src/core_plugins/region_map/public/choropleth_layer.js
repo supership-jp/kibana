@@ -52,6 +52,7 @@ export default class ChoroplethLayer extends KibanaMapLayer {
     this._featureCollection = features;
     this._featureDict = featureDict;
     this._toRender = toRender;
+    this._prevKeys = [];
 
     this._showAllShapes = showAllShapes;
     this._geojsonUrl = geojsonUrl;
@@ -145,16 +146,25 @@ CORS configuration of the server permits requests from the Kibana application on
     this._isJoinValid = false;
   }
 
+  _clearPrevFeatures() {
+    if (this._featureDict) {
+      this._prevKeys.forEach(key => this._featureDict[key].__kbnJoinedMetric = null);
+      this._prevKeys = [];
+    }
+  }
+
   _innerJoin() {
+    this._clearPrevFeatures();
     if (!this._metrics) return [[], []];
     const featuresToDraw = [];
     const mismatchedKeys = [];
-    for (let i = 0; i < this._metrics.length; i++) {
+    for (let i = this._metrics.length - 1; i >= 0; i--) {
       const keyTerm = this._metrics[i].term;
       const _feature = this._featureDict[keyTerm];
       if (_feature) {
         _feature.__kbnJoinedMetric = this._metrics[i];
         featuresToDraw.push(_feature);
+        this._prevKeys.push(keyTerm);
       } else {
         mismatchedKeys.push(keyTerm);
       }
@@ -256,6 +266,7 @@ CORS configuration of the server permits requests from the Kibana application on
     if ((url === this._geojsonUrl) && (this._featureCollection) && (this._featureDict)) {
       features = this._featureCollection;
       featureDict = this._featureDict;
+      this._clearPrevFeatures();
     }
     const clonedLayer = new ChoroplethLayer(url, attribution, format, showAllData, meta, features, featureDict, toRender);
     clonedLayer.setJoinField(this._joinField);
@@ -317,8 +328,8 @@ CORS configuration of the server permits requests from the Kibana application on
       return;
     }
 
-    const currentKeys = Object.keys(this._metrics);
-    const newKeys = Object.keys(newMetrics);
+    const currentKeys = this._metrics.map(bucket => bucket.term);
+    const newKeys = newMetrics.map(bucket => bucket.term);
     return _.isEqual(currentKeys, newKeys);
   }
 
