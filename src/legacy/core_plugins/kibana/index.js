@@ -67,7 +67,7 @@ export default function (kibana) {
       ],
       app: {
         id: 'kibana',
-        title: 'Kibana',
+        title: 'SS dashboard',
         listed: false,
         main: 'plugins/kibana/kibana',
       },
